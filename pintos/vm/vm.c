@@ -47,15 +47,27 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 
 	ASSERT (VM_TYPE(type) != VM_UNINIT)
 
-	struct supplemental_page_table *spt = &thread_current ()->spt;
+	struct supplemental_page_table *spt = &thread_current ()->spt; // 현재 스레드의 spt를 가져옴
 
 	/* Check wheter the upage is already occupied or not. */
-	if (spt_find_page (spt, upage) == NULL) {
+	if (spt_find_page (spt, upage) == NULL) { // 페이지를 찾으려 했는데 없을 경우
 		/* TODO: Create the page, fetch the initialier according to the VM type,
 		 * TODO: and then create "uninit" page struct by calling uninit_new. You
 		 * TODO: should modify the field after calling the uninit_new. */
+		
+		struct page *page = malloc(sizeof(struct page)); // 새로운 페이지를 생성
+
+		if (type == VM_ANON) // 타입 비교
+		{
+			uninit_new(page, upage, init, type, aux, anon_initializer); // 어나니머스 타입이면 anon_initializer를 사용
+		}
+		else
+		{
+			uninit_new(page, upage, init, type, aux, file_backed_initializer); // 파일 타입이면 file_backed_initializer 사용
+		}
 
 		/* TODO: Insert the page into the spt. */
+		return spt_insert_page(spt, page); // spt에 삽입
 	}
 err:
 	return false;
@@ -123,18 +135,18 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
-	struct frame *frame = malloc(sizeof(struct frame));
+	struct frame *frame = malloc(sizeof(struct frame)); // struct frame이나 struct page 같은 경우는 크기가 작기 때문에 크기 설정을 할 수 있는 malloc으로 선언함.
 	ASSERT (frame != NULL);
-	frame->kva = palloc_get_page(PAL_ZERO||PAL_USER);
-	if(frame->kva == NULL){
+	frame->kva = palloc_get_page(PAL_ZERO||PAL_USER); // palloc을 호출해 사용자 출로 부터 새로운 물리 페이지를 가져옴.
+	if(frame->kva == NULL){ // 사용자 풀 메모리가 가득 찼을 경우
 		//userpool full so eviction must implement
-		PANIC("todo");
+		PANIC("todo"); // 지금은 vm_evict_frame이 구현되어 있지 않으니 PANIC("TODO")를 호출함.
 	}
 	
-	if(list_empty(&frame_table)){
-		list_init(&frame_table);
+	if(list_empty(&frame_table)){ // frame_table이 비어 있다면
+		list_init(&frame_table); // 리스트를 초기화한다.
 	}
-	list_push_back(&frame_table, &frame->frame_table_elem);
+	list_push_back(&frame_table, &frame->frame_table_elem); // frame_table 리스트에 fream_table_elem을 추가한다.
 	
 	ASSERT (frame->page == NULL);
 	return frame;
@@ -190,14 +202,12 @@ vm_do_claim_page (struct page *page) {
 	frame->page = page;
 	page->frame = frame;
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
-	if(
-		!pml4_set_page(thread_current()->pml4, page, frame,
-	 is_writeable(pml4e_walk (thread_current()->pml4, (uint64_t) page, 1)))) // 1?0
-	 {
-		return false;
-	 }
+	if(!pml4_set_page(thread_current()->pml4, page, frame, is_writeable(pml4e_walk (thread_current()->pml4, (uint64_t) page, 1)))) // 프로세스의 페이지 테이블에서 가상 페이지의 권한이 쓰기인지 확인을 하고 새 물리 메모리와 가상 페이지 연결이 안 되었다면?
+	{
+		return false; // false 반환
+	}
 
-	return swap_in (page, frame->kva);
+	return swap_in (page, frame->kva); // 보조기억장치에 있는 내용을 주기억장치로 가져옴.
 }
 
 /* Initialize new supplemental page table */
