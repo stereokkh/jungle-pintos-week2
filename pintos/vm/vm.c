@@ -190,17 +190,15 @@ vm_get_frame (void) {
 /* Growing the stack. */
 static void
 vm_stack_growth (void *addr UNUSED) {
-	//addr는 폴트 헨들러 함수에서 커널이 아님을 검사했기 때문에 uva일 것이다
-	if(vm_alloc_page(VM_ANON|VM_MARKER_0, pg_round_down(addr), 1)){
-		//stack 할당 해줬으니 프로세스 스텍 최대치 증가
-		thread_current()->user_stack_bottom += PGSIZE ;
+	if (!vm_alloc_page (VM_ANON | VM_MARKER_0, pg_round_down (addr), true)) // 가상 페이지를 만듦. 만약에 실패하면?
+	{
+		return; // 바로 실패 때려 버림
 	}
 
-	//va = kva 매핑
-	if(vm_claim_page(addr)){
-		//무슨 예외처리?
+	if (!vm_claim_page (pg_round_down (addr))) // 만든 가상 페이지랑 물리 메모리랑 연결함. 만약에 실패하면?
+	{
+		return; // 바아로 실패 때려 버림
 	}
-
 }	
 
 /* Handle the fault on write_protected page */
