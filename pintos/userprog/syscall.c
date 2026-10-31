@@ -14,6 +14,7 @@
 #include "devices/input.h"
 #include "filesys/filesys.h"
 #include "threads/palloc.h"
+#include "vm/vm.h"
 
 
 
@@ -55,6 +56,7 @@ syscall_init (void) {
 struct intr_frame *f_data; // 프레임을 집어 넣어야 하는데 인자 개수가 f->R.rdi 하나로 제한되어 전역 변수 선언하여 집어넣음
 void
 syscall_handler (struct intr_frame *f) {
+	thread_current()->rsp = f->rsp;
 	switch (f->R.rax) {
 		case SYS_HALT:
 			halt ();
@@ -357,6 +359,7 @@ write (int fd, const void *buffer, unsigned size){
 		if (file_des->file == NULL) return -1;
 		lock_acquire (&file_lock);
 		int written = file_write(file_des->file, buffer, size); // file 사용 함수, file구조체 주소로 넘겨줘야 함
+		
 		lock_release (&file_lock);
 		return written;
 	}
@@ -436,7 +439,7 @@ check_buffer (const void *buffer, unsigned size) {
 		exit (-1); // uint8_t * : 64비트 (부호x) => 최대값 끝나면 0으로 감
 
 	uint64_t *pml4 = thread_current ()->pml4; // 현재 프로세스의 페이지 테이블(pml4)을 가져옴
-
+	
 	/* 
 	버퍼가 여러 페이지에 걸쳐 있을 수 있으므로,
 	start가 속한 페이지의 시작 주소부터 end가 속한 페이지까지 한 페이지씩 검사
@@ -446,7 +449,9 @@ check_buffer (const void *buffer, unsigned size) {
 			exit (-1);
 		}
 		if (pml4_get_page (pml4, p) == NULL){
-			exit (-1);
+			if(spt_find_page(&thread_current()->spt, p) == NULL){
+				exit(-1);
+			} //need to check
 		}
 	}
 }
