@@ -190,6 +190,7 @@ vm_get_frame (void) {
 /* Growing the stack. */
 static void
 vm_stack_growth (void *addr UNUSED) {
+	//addr는 폴트 헨들러 함수에서 커널이 아님을 검사했기 때문에 uva일 것이다
 	if (!vm_alloc_page (VM_ANON | VM_MARKER_0, pg_round_down (addr), true)) // 가상 페이지를 만듦. 만약에 실패하면?
 	{
 		return; // 바로 실패 때려 버림
@@ -211,34 +212,44 @@ bool
 vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
 
-	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
+	struct supplemental_page_table *spt = &thread_current ()->spt;
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
 
-	//받은 주소가 없거나 커널 가상주소일경우 접근 제한
+	//핀토스의 spt는 사용자 가상 테이블만을 관리하기 때문에 커널 주소에 대한 매핑이 없다고 해서
+	// 사용자 페이지를 만들어 주면 안된다
 	if(addr == NULL || is_kernel_vaddr(addr)){
 		return false;
 	}
-	//패이지가 있는데 쓰기 권한이 없는 경우
-	if(!not_present&&write){
+	/*페이지는 present 상태지만 접근 권한 위반으로 fault 발생*/
+	if(!not_present){
 		return false;
 	}
-	//위 경우포함해서 가상 주소가 spt에 있는데 권한이 유효한 경우 페이지 할당
+	//spt에 페이지 확인
 	page = spt_find_page(spt, pg_round_down(addr));
-	if(page != NULL){
-		return vm_do_claim_page(page);
+	//spt에 페이지가 없는 경우
+	if(page == NULL){
+		
+		uintptr_t rsp = user ? f->rsp : thread_current()->rsp;
+		/*값을 저장하기 위해 스택 공간을 확보한 후 (rsp가 이미 내려감) 이후 데이터 저장을 시도 할 때 page fault
+		가 발생하므로 addr가 rsp보다 높은 상태임
+		push 명령어는 rsp를 8바이트를 감소시키고 그 위치에 값을 저장하는 명령어
+		page fault handler에서 관찰하는 rsp는 실패한 push 명령어 이전의 값으로 addr가 rsp보다 낮음
+		이 상황또한 정상적으로 처리하기위해 주소를 저장하는 8바이트 여유를 둔다*/
+		if((uintptr_t)addr >= rsp-8 && addr >=ULIMIT && addr < USER_STACK){
+			vm_stack_growth(pg_round_down(addr));
+			return true;
+		}
 	}else{
-		//stack growth가 맞는지  다른 처리 가 필요한지
-		if(thread_current()->rsp < f->rsp) return false; //page fault의 rsp가 현제 찍고있는 rsp가 낮을경우
-		if(f->rsp < ULIMIT) return false; //user stack 아래를 rsp가 찍을 경우 ULIMIT = USER_STACK - (1<<20)
-		vm_stack_growth(addr);
-
-		return 1;//후 과제 vm_stack_growth 이후  true 가 맞긴 한거 같은데
+		//spt에 페이지가 있다 lazy or swap
+		//쓰기 폴트일 경우 페이지가 쓰기 가능 상태인지 확인
+		if(write && !page->writable) return false;
+		return vm_do_claim_page(page);
 	}
 	return false;
-
 }
+	
 
 
 /* Free the page.
