@@ -200,7 +200,6 @@ vm_stack_growth (void *addr UNUSED) {
 	{
 		return; // 바아로 실패 때려 버림
 	}
-
 }	
 
 /* Handle the fault on write_protected page */
