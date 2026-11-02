@@ -120,6 +120,42 @@ syscall_handler (struct intr_frame *f) {
 			f->R.rax = dup2((int)f->R.rdi, (int)f->R.rsi);
 			break;
 
+		case SYS_MMAP:
+			/*
+			f -> R.rax 값을 NULL로 초기화, 왜? f -> R.rax에 다른 값이 들어 있을 수 있으니 이를 방지하기 위해서이다.
+			f -> R.r10이 1보다 크거나 FILE_MAX보다 작거나 같은 것을 확인, 왜? mmap() 함수에서 f -> R.r10에는 fd(파일 디스크립터)가 담겨 있는데 이것은 0, 1을 가르킬 수 없고 자신보다 큰 값도 자르킬 수 없기 때문에 확인하는 것이다.
+			thread -> fdt[f -> R.r10]의 값을 가져옴, 왜? fdt(파일 디스크립트 테이블) 안에 해당 fd가 사용중인지 아닌지 담겨 있기 때문에 여부 확인을 위해 가져오는 것이다.
+			thread -> fdt[f -> R.r10]을 못 가져왔을 수 있으니 확인, 왜? thread -> fdt[f -> R.r10] 가져오지 못하면 fd를 확인할 수 없기 때문에 미리 확인하는 것이다.
+			file이 NULL이 아닌 것을 확인했으면 file에 thread -> fdt[f -> R.r10] -> file를 넣음, 왜? 원래 주 목적인 file을 가져와야 하는데 if (file == NULL) 전에 struct file *file = thread -> fdt[f -> R.r10] -> file; 이라고 선언해 버리면 NULL일 수 있는 thread -> fdt[f -> R.r10] 때문에 접근 오류가 생기는 것이다.
+			가져온 file을 rax에 넣음, 왜? rax는 함수 반환값이기 때문에 넣는 것이다.
+			f -> R.rax가 NULL인지 확인, 왜? 잘 들어갔는지 확인하는 것이다.
+			*/
+
+			f -> R.rax = NULL;
+
+			if (f -> R.r10 <= 1 || f -> R.r10 >= FILE_MAX)
+			{
+				break;
+			}
+
+			struct thread *thread = thread_current ();
+			struct file *file = thread -> fdt[f -> R.r10];
+
+			if (file == NULL)
+			{
+				break;
+			}
+
+			file = thread -> fdt[f -> R.r10] -> file;
+			f -> R.rax = do_mmap (f -> R.rdi, f -> R.rsi, f -> R.rdx, file, f -> R.r8);
+			
+			if (f -> R.rax == NULL)
+			{
+				break;
+			}
+
+			break;
+
 		default:
 			exit(-1);
 			break;
